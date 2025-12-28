@@ -1,0 +1,50 @@
+name: Deploy to GitHub Pages
+
+# Run this script when we push to the master/main branch
+on:
+  push:
+    branches: [ "master", "main" ]
+
+jobs:
+  deploy-to-github-pages:
+    # Use a standard Linux machine
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write # Needed to push the build files back to GitHub
+
+    steps:
+    # 1. Checkout the code
+    - uses: actions/checkout@v4
+
+    # 2. Setup .NET (Matches your version)
+    - name: Setup .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        dotnet-version: '10.0.x'
+
+    # 3. Create the Secret File (Crucial Step!)
+    # We write the secret to wwwroot so the app can find it when running.
+    - name: Create Secrets File
+      run: echo '${{ secrets.APP_SECRETS_JSON }}' > WardSystem/wwwroot/secrets.json
+
+    # 4. Publish the app
+    # This compiles the code into the 'release' folder
+    - name: Publish .NET Project
+      run: dotnet publish WardSystem/WardSystem.csproj -c Release -o release --nologo
+
+    # 5. Fix the Base Path (GitHub Pages specific)
+    # This changes <base href="/" /> to <base href="/RepoName/" />
+    # REPLACE 'WardSystem' WITH YOUR EXACT GITHUB REPOSITORY NAME
+    - name: Change base-tag in index.html
+      run: sed -i 's/<base href="\/" \/>/<base href="\/WardSystem\/" \/>/g' release/wwwroot/index.html
+
+    # 6. Add .nojekyll file
+    # Required so GitHub doesn't ignore files starting with "_" (like _framework)
+    - name: Add .nojekyll file
+      run: touch release/wwwroot/.nojekyll
+
+    # 7. Deploy to gh-pages branch
+    - name: Deploy to GitHub Pages
+      uses: JamesIves/github-pages-deploy-action@v4
+      with:
+        folder: release/wwwroot
