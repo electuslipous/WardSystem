@@ -1,0 +1,140 @@
+﻿@page "/print-report"
+@using WardSystem.Models
+@using WardSystem.Services
+@using Blazored.LocalStorage
+@inject ILocalStorageService LocalStorage
+@inject WardService WardService
+@inject IJSRuntime JSRuntime
+@inject NavigationManager NavManager
+
+@if (isLoading)
+{
+    <div class="d-flex justify-content-center align-items-center vh-100">
+        <div class="spinner-border text-primary"></div>
+        <span class="ms-3">Betöltés...</span>
+    </div>
+}
+else
+{
+    <div class="print-container bg-white text-dark p-0">
+
+        <div class="row border-bottom border-dark pb-2 mb-2 mx-0 align-items-end">
+            <div class="col-8 ps-0">
+                <h2 class="fw-bold m-0" style="font-family: 'Times New Roman', serif;">Osztályos Vizit</h2>
+                <div class="text-uppercase small text-muted">Idegsebészet</div>
+            </div>
+            <div class="col-4 text-end pe-0">
+                <h4 class="fw-bold m-0">@DateTime.Now.ToString("yyyy.MM.dd.")</h4>
+                <div class="small text-muted">@DateTime.Now.ToString("HH:mm")</div>
+            </div>
+        </div>
+
+        @if (!HasPatients)
+        {
+            <div class="alert alert-warning d-print-none">Nincs megjeleníthető adat.</div>
+        }
+
+        <table class="table-print">
+            <colgroup>
+                <col style="width: 12%;">
+                <col style="width: 28%;">
+                <col style="width: 55%;">
+                <col style="width: 5%;">
+            </colgroup>
+
+            <thead>
+                <tr>
+                    <th>Ágy</th>
+                    <th>Beteg Adatok</th>
+                    <th>Decursus / Jegyzet</th>
+                    <th class="text-center">Kész</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                @foreach (var room in WardService.Ward)
+                {
+                    @if (room.Patients.Any(p => p != null))
+                    {
+                        <tr style="background-color: #f8f9fa; -webkit-print-color-adjust: exact;">
+                            <td colspan="4" class="fw-bold pt-3 pb-1 ps-2" style="border-bottom: 2px solid #000; font-size: 12pt;">
+                                @room.Number. KÓRTEREM
+                            </td>
+                        </tr>
+
+                        @for (int i = 0; i < room.Patients.Count; i++)
+                        {
+                            var patient = room.Patients[i];
+                            if (patient != null)
+                            {
+                                <tr>
+                                    <td class="fw-bold text-nowrap">
+                                        @(i + 1). ágy
+                                    </td>
+
+                                    <td>
+                                        <div class="fw-bold fs-6">@patient.Name</div>
+                                        <div class="small fst-italic text-muted mt-1">@patient.Diagnosis</div>
+                                    </td>
+
+                                    <td>
+                                        @if (!string.IsNullOrWhiteSpace(patient.Note))
+                                        {
+                                            <div class="mb-1 text-break" style="font-family: 'Courier New', monospace; font-size: 10pt;">
+                                                @patient.Note
+                                            </div>
+                                        }
+                                        <div class="handwritten-lines"></div>
+                                        <div class="handwritten-lines"></div>
+                                    </td>
+
+                                    <td class="text-center align-middle">
+                                        <div style="width: 16px; height: 16px; border: 1px solid #000; display: inline-block;"></div>
+                                    </td>
+                                </tr>
+                            }
+                        }
+                    }
+                }
+            </tbody>
+        </table>
+
+        <div class="row mt-4 pt-4 mx-0" style="page-break-inside: avoid;">
+            <div class="col-12 border-top border-dark pt-2 px-0">
+                <div class="row">
+                    <div class="col-6">
+                        <small class="text-uppercase text-muted">Osztályos Orvos</small>
+                        <div class="fs-5">
+                            @(string.IsNullOrEmpty(WardService.DailyDoctor) ? "________________" : WardService.DailyDoctor)
+                        </div>
+                    </div>
+                    <div class="col-6 text-end">
+                        <small class="text-uppercase text-muted">Ügyeletes</small>
+                        <div class="fs-5">
+                            @(string.IsNullOrEmpty(WardService.OnCallDoctor) ? "________________" : WardService.OnCallDoctor)
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="fixed-bottom bg-light p-3 border-top d-print-none text-center shadow">
+        <button class="btn btn-secondary me-3" @onclick="GoBack">Vissza</button>
+        <button class="btn btn-primary btn-lg" @onclick="PrintNow">Nyomtatás</button>
+    </div>
+}
+
+@code {
+    private bool isLoading = true;
+    private bool HasPatients => WardService.Ward.Any(r => r.Patients.Any(p => p != null));
+
+    protected override async Task OnInitializedAsync()
+    {
+        await WardService.LoadWardData(LocalStorage);
+        isLoading = false;
+    }
+
+    private void GoBack() => NavManager.NavigateTo("rounds");
+    private async Task PrintNow() => await JSRuntime.InvokeVoidAsync("print");
+}

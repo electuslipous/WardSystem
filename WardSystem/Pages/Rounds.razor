@@ -1,0 +1,263 @@
+﻿@page "/rounds"
+@using WardSystem.Models
+@using WardSystem.Services
+@using Blazored.LocalStorage
+@inject WardService WardService
+@inject NavigationManager NavManager
+@inject ILocalStorageService LocalStorage
+
+<div class="container py-3">
+    @if (isLoading)
+    {
+        <div class="text-center py-5">
+            <div class="spinner-border text-primary" role="status"></div>
+            <p>Állapot betöltése...</p>
+        </div>
+    }
+    else if (roundState.IsFinished)
+    {
+        <div class="animate__animated animate__fadeIn text-center mt-5">
+            <div class="display-1 text-success mb-3"><span class="bi bi-check-circle-fill"></span></div>
+            <h1 class="fw-bold">A mai vizit befejezve</h1>
+
+            <div class="alert alert-light border d-inline-block px-5 py-3 mt-3 shadow-sm">
+                <h4 class="m-0 text-muted">@roundState.FinishedTime?.ToString("yyyy. MMMM dd.")</h4>
+                <p class="lead m-0">Befejezés ideje: <strong>@roundState.FinishedTime?.ToString("HH:mm")</strong></p>
+            </div>
+
+            <div class="mt-5 d-flex justify-content-center gap-3">
+                <button class="btn btn-secondary btn-lg" @onclick="GoToPrint">
+                    <span class="bi bi-printer me-2"></span>Nyomtatás (Print)
+                </button>
+
+                <button class="btn btn-danger btn-lg" @onclick="RestartRounds">
+                    <span class="bi bi-arrow-counterclockwise me-2"></span>Vizit Újrakezdése (0-ról)
+                </button>
+            </div>
+
+            <div class="mt-4">
+                <button class="btn btn-link" @onclick="GoToReviewMode">
+                    <span class="bi bi-eye me-2"></span>Adatok megtekintése / szerkesztése
+                </button>
+            </div>
+        </div>
+    }
+    else if (!roundState.IsActive)
+    {
+        <div class="text-center py-5 mt-4">
+            <span class="bi bi-clipboard2-pulse display-1 text-primary"></span>
+            <h1 class="display-5 mt-3">👨‍⚕️ Vizit Indítása</h1>
+            <p class="text-muted">Debreceni Egyetem Klinikai Központ - Idegsebészet</p>
+            <button class="btn btn-primary btn-lg shadow px-5 mt-3" @onclick="StartRounds">
+                <span class="bi bi-play-circle me-2"></span>Kezdés
+            </button>
+        </div>
+    }
+    else
+    {
+        <div class="text-center mb-3 animate__animated animate__fadeIn">
+            <div class="bg-primary text-white rounded-top py-2 shadow-sm mx-auto" style="max-width: 600px;">
+                <h1 class="m-0 fw-bold">@CurrentRoomObj.Number. Kórterem</h1>
+                <small class="opacity-75">(@CurrentRoomObj.Beds ágyas)</small>
+            </div>
+
+            <div class="bg-white border-start border-end border-bottom py-2 shadow-sm mx-auto d-flex justify-content-between align-items-center px-4"
+                 style="max-width: 600px;">
+                <button class="btn btn-sm btn-link text-decoration-none text-muted" @onclick="PreviousStep" disabled="@IsFirstStep">
+                    <span class="bi bi-chevron-left"></span> Előző
+                </button>
+                <h3 class="m-0 text-dark"><span class="badge bg-secondary rounded-pill me-2">@(roundState.CurrentBedIndex + 1).</span>Ágy</h3>
+                <button class="btn btn-sm btn-link text-decoration-none text-muted" @onclick="NextStep">
+                    Következő <span class="bi bi-chevron-right"></span>
+                </button>
+            </div>
+        </div>
+
+        <div class="card shadow-lg border-0 mx-auto" style="max-width: 600px;">
+            <div class="card-body p-4">
+                @if (CurrentPatient != null)
+                {
+                    <div class="mb-4 text-center">
+                        <span class="bi bi-person-circle display-4 text-primary mb-2 d-block"></span>
+                        <h2 class="fw-bold">@CurrentPatient.Name</h2>
+                        <div class="badge bg-info text-dark fs-6 mt-2">@CurrentPatient.Diagnosis</div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label class="form-label fw-bold text-muted small text-uppercase">
+                            <span class="bi bi-pencil-square me-1"></span>Napi Decursus
+                        </label>
+                        <textarea class="form-control bg-light" rows="6"
+                                  value="@CurrentPatient.Note"
+                                  @oninput="(e) => UpdateNote(e.Value.ToString())"
+                                  placeholder="Státusz, sebviszonyok, tervek..."></textarea>
+                    </div>
+                }
+                else
+                {
+                    <div class="text-center py-5 text-muted">
+                        <span class="bi bi-usb-drive display-1 opacity-25"></span>
+                        <h3 class="mt-3">Üres ágy</h3>
+                    </div>
+                }
+            </div>
+
+            <div class="card-footer bg-light p-3">
+                <div class="d-grid gap-2">
+                    <button class="btn btn-success btn-lg shadow" @onclick="NextStep">
+                        @if (IsLastStep)
+                        {
+                            <span><span class="bi bi-check-circle me-2"></span>Vizit Befejezése</span>
+                        }
+                        else
+                        {
+                            <span>Rendben / Következő <span class="bi bi-arrow-right ms-2"></span></span>
+                        }
+                    </button>
+                </div>
+            </div>
+        </div>
+        <div class="text-center mt-4">
+            <button class="btn btn-sm text-danger" @onclick="CancelRounds">
+                <span class="bi bi-x-circle me-1"></span>Kilépés (Mentés nélkül)
+            </button>
+        </div>
+    }
+</div>
+
+@code {
+    private bool isLoading = true;
+
+    // We create a simple class to hold the "State"
+    public class RoundState
+    {
+        public bool IsActive { get; set; } = false;
+        public bool IsFinished { get; set; } = false;
+        public DateTime? FinishedTime { get; set; }
+        public int CurrentRoomIndex { get; set; } = 0;
+        public int CurrentBedIndex { get; set; } = 0;
+    }
+
+    private RoundState roundState = new RoundState();
+
+    // --- Helpers ---
+    private Room CurrentRoomObj => WardService.Ward[roundState.CurrentRoomIndex];
+    private Patient? CurrentPatient
+    {
+        get
+        {
+            if (roundState.CurrentBedIndex < CurrentRoomObj.Patients.Count)
+                return CurrentRoomObj.Patients[roundState.CurrentBedIndex];
+            return null;
+        }
+    }
+    private bool IsFirstStep => roundState.CurrentRoomIndex == 0 && roundState.CurrentBedIndex == 0;
+    private bool IsLastStep => roundState.CurrentRoomIndex == WardService.Ward.Count - 1 && roundState.CurrentBedIndex == CurrentRoomObj.Beds - 1;
+
+    // --- Lifecycle ---
+
+    protected override async Task OnInitializedAsync()
+    {
+        // 1. Try to load saved state from USB/Phone browser cache
+        var savedState = await LocalStorage.GetItemAsync<RoundState>("vizitState");
+        if (savedState != null)
+        {
+            roundState = savedState;
+        }
+        isLoading = false;
+    }
+
+    private async Task SaveState()
+    {
+        await LocalStorage.SetItemAsync("vizitState", roundState);
+
+    }
+
+    // --- Actions ---
+
+    private async Task StartRounds()
+    {
+        roundState = new RoundState
+        {
+            IsActive = true,
+            CurrentRoomIndex = 0,
+            CurrentBedIndex = 0
+        };
+        await SaveState();
+    }
+
+    private async Task RestartRounds()
+    {
+        // Clear everything
+        await LocalStorage.RemoveItemAsync("vizitState");
+        roundState = new RoundState(); // Reset to defaults
+    }
+
+    private void GoToReviewMode()
+    {
+        // Trick: Just set finished to false but active to true to let them edit
+        roundState.IsFinished = false;
+        roundState.IsActive = true;
+        // Don't save this specific transition so a refresh brings them back to "Finished" screen
+    }
+
+    private async Task CancelRounds()
+    {
+        // Just stop tracking, but keep data
+        roundState.IsActive = false;
+        await SaveState();
+    }
+
+    private async Task UpdateNote(string value)
+    {
+        // Update the patient object in memory
+        if (CurrentPatient != null)
+        {
+            CurrentPatient.Note = value;
+            // IMPORTANT: In a real app, you should also save the WardService data to LocalStorage
+            // For now, we are just saving the 'Position' state
+
+            await WardService.SaveWardData(LocalStorage);
+        }
+    }
+
+    private async Task NextStep()
+    {
+        if (roundState.CurrentBedIndex < CurrentRoomObj.Beds - 1)
+        {
+            roundState.CurrentBedIndex++;
+        }
+        else if (roundState.CurrentRoomIndex < WardService.Ward.Count - 1)
+        {
+            roundState.CurrentRoomIndex++;
+            roundState.CurrentBedIndex = 0;
+        }
+        else
+        {
+            // FINISHED
+            roundState.IsActive = false;
+            roundState.IsFinished = true;
+            roundState.FinishedTime = DateTime.Now;
+        }
+        await SaveState();
+    }
+
+    private async Task PreviousStep()
+    {
+        if (roundState.CurrentBedIndex > 0)
+        {
+            roundState.CurrentBedIndex--;
+        }
+        else if (roundState.CurrentRoomIndex > 0)
+        {
+            roundState.CurrentRoomIndex--;
+            roundState.CurrentBedIndex = WardService.Ward[roundState.CurrentRoomIndex].Beds - 1;
+        }
+        await SaveState();
+    }
+    private async void GoToPrint()
+    {
+        await WardService.SaveWardData(LocalStorage);
+        NavManager.NavigateTo("print-report");
+    }
+}

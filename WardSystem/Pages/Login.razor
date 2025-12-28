@@ -1,0 +1,56 @@
+﻿@using WardSystem.Services
+@inject AuthService AuthService
+@inject NavigationManager NavManager
+
+<div class="d-flex justify-content-center align-items-center vh-100 bg-light">
+    <div class="card shadow-lg p-4 border-0" style="max-width: 400px; width: 100%;">
+        <div class="text-center mb-4">
+            <span class="bi bi-shield-lock-fill display-1 text-primary"></span>
+            <h3 class="mt-3 fw-bold">Rendszer Belépés</h3>
+            <p class="text-muted">Request password to the Admin</p>
+        </div>
+
+        <div class="mb-3">
+            <input type="password"
+                   class="form-control form-control-lg text-center"
+                   placeholder="Jelszó"
+                   @bind="password"
+                   @onkeyup="HandleEnter" />
+        </div>
+
+        @if (showError)
+        {
+            <div class="alert alert-danger py-2 text-center small">
+                Hibás jelszó!
+            </div>
+        }
+
+        <button class="btn btn-primary btn-lg w-100" @onclick="TryLogin">
+            Belépés
+        </button>
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback OnLoginSuccess { get; set; }
+    private string password = "";
+    private bool showError = false;
+
+    private async Task TryLogin()
+    {
+        if (AuthService.Login(password))
+        {
+            await OnLoginSuccess.InvokeAsync();
+        }
+        else
+        {
+            showError = true;
+            password = "";
+        }
+    }
+
+    private async Task HandleEnter(KeyboardEventArgs e)
+    {
+        if (e.Key == "Enter") await TryLogin();
+    }
+}

@@ -1,0 +1,239 @@
+﻿@page "/manage"
+@using WardSystem.Models
+@using WardSystem.Services
+@inject WardService WardService
+@using Blazored.LocalStorage
+@inject ILocalStorageService LocalStorage
+
+<div class="container py-4">
+    <div class="d-flex justify-content-between align-items-center mb-4">
+        <h3>🏥 Osztályos Menedzsment</h3>
+        <span class="badge bg-dark">Debreceni Idegsebészet</span>
+    </div>
+
+    <div class="card mb-4 border-secondary bg-light">
+        <div class="card-body py-3">
+            <div class="row align-items-end">
+                <div class="col-md-6 mb-2 mb-md-0">
+                    <label class="form-label fw-bold text-primary mb-1">Osztályos Orvos</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-white"><i class="bi bi-person-badge-fill"></i></span>
+                        <input type="text" class="form-control"
+                               @bind="WardService.DailyDoctor"
+                               @onfocusout="SaveStaffData"
+                               placeholder="Pl. Dr. Kovács János" />
+                    </div>
+                </div>
+                <div class="col-md-6">
+                    <label class="form-label fw-bold text-danger mb-1">Ügyeletes Orvos</label>
+                    <div class="input-group">
+                        <span class="input-group-text bg-white"><i class="bi bi-hospital-fill"></i></span>
+                        <input type="text" class="form-control"
+                               @bind="WardService.OnCallDoctor"
+                               @onfocusout="SaveStaffData"
+                               placeholder="Pl. Dr. Nagy Anna" />
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="row">
+        @foreach (var room in WardService.Ward)
+        {
+            <div class="col-12 mb-3">
+                <div class="card shadow-sm @GetRoomBorder(room.Type)">
+                    <div class="card-header d-flex justify-content-between align-items-center">
+                        <strong>@room.Number. Kórterem</strong>
+                        <span class="badge bg-secondary">@GetTypeName(room.Type) (@room.Beds ágy)</span>
+                    </div>
+                    <div class="card-body">
+                        <div class="row">
+                            @for (int i = 0; i < room.Beds; i++)
+                            {
+                                int bedIndex = i;
+                                var patient = room.Patients.ElementAtOrDefault(bedIndex);
+
+                                <div class="col-md-3">
+                                    <div class="p-3 border rounded @(patient == null ? "bg-light border-dashed" : "bg-white")">
+                                        @if (patient != null)
+                                        {
+                                            <div class="fw-bold text-truncate">@patient.Name</div>
+                                            <div class="small text-muted mb-3 text-truncate">@patient.Diagnosis</div>
+
+                                            <button class="btn btn-sm btn-outline-secondary w-100 mb-2"
+                                                    @onclick="() => PrepareEdit(room.Number, bedIndex, patient)">
+                                                <i class="bi bi-pencil me-1"></i> Szerkesztés
+                                            </button>
+
+                                            <button class="btn btn-sm btn-danger w-100"
+                                                    @onclick="async () => await WardService.DischargePatient(room.Number, bedIndex, LocalStorage)">
+                                                Távozás
+                                            </button>
+                                        }
+                                        else
+                                        {
+                                            <div class="text-center">
+                                                <div class="text-muted small mb-1">@(bedIndex + 1). ágy</div>
+                                                <button class="btn btn-sm btn-outline-primary"
+                                                        @onclick="() => PrepareAdmission(room.Number, bedIndex)">
+                                                    + Felvétel
+                                                </button>
+                                            </div>
+                                        }
+                                    </div>
+                                </div>
+                            }
+                        </div>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@if (ShowModal)
+{
+    <div class="modal fade show d-block" tabindex="-1" style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog">
+            <div class="modal-content" style="margin-top:150px;">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title">
+                        @(IsEditing ? "Adatok módosítása" : "Új beteg felvétele")
+                        <small class="opacity-75">(@TargetRoom. szoba)</small>
+                    </h5>
+                    <button type="button" class="btn-close" @onclick="CloseModal"></button>
+                </div>
+                <div class="modal-body">
+                    @if (!string.IsNullOrEmpty(errorMessage))
+                    {
+                        <div class="mb-2">
+                            <span class="text-danger small fw-bold">@errorMessage</span>
+                        </div>
+                    }
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Beteg Neve</label>
+                        <input type="text" class="form-control @(string.IsNullOrEmpty(errorMessage) ? "" : "is-invalid")" @bind="newPatient.Name" />
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Diagnózis</label>
+                        <input type="text" class="form-control" @bind="newPatient.Diagnosis" />
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn btn-secondary" @onclick="CloseModal">Mégse</button>
+                    <button class="btn btn-success" @onclick="ConfirmAction">
+                        @(IsEditing ? "Módosítások Mentése" : "Felvétel Mentése")
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+}
+
+@code {
+    private int TargetRoom;
+    private int TargetBedIndex;
+    private Patient newPatient = new();
+    private bool ShowModal = false;
+    private string errorMessage = "";
+
+    // NEW FLAG: Tracks if we are adding or editing
+    private bool IsEditing = false;
+
+    protected override async Task OnInitializedAsync()
+    {
+        await WardService.LoadWardData(LocalStorage);
+    }
+
+    private async Task SaveStaffData()
+    {
+        await WardService.SaveWardData(LocalStorage);
+    }
+
+    // --- LOGIC ---
+
+    // 1. Prepare for NEW Admission
+    private void PrepareAdmission(int roomNumber, int bedIndex)
+    {
+        TargetRoom = roomNumber;
+        TargetBedIndex = bedIndex;
+        newPatient = new Patient(); // Clean object
+        IsEditing = false; // We are adding new
+        errorMessage = "";
+        ShowModal = true;
+    }
+
+    // 2. Prepare for EDIT (Loads existing data)
+    private void PrepareEdit(int roomNumber, int bedIndex, Patient existing)
+    {
+        TargetRoom = roomNumber;
+        TargetBedIndex = bedIndex;
+
+        // Copy data to the form input object so we can edit it without saving yet
+        newPatient = new Patient
+        {
+            Name = existing.Name,
+            Diagnosis = existing.Diagnosis
+        };
+
+        IsEditing = true; // We are editing
+        errorMessage = "";
+        ShowModal = true;
+    }
+
+    private void CloseModal() => ShowModal = false;
+
+    // 3. Unified Confirm Action
+    private async Task ConfirmAction()
+    {
+        if (string.IsNullOrWhiteSpace(newPatient.Name))
+        {
+            errorMessage = "A név megadása kötelező!";
+            return;
+        }
+
+        if (IsEditing)
+        {
+            // --- EDIT LOGIC ---
+            // Find the patient in memory and update ONLY Name/Diagnosis
+            // (This preserves the 'Note' field which isn't in the modal)
+            var room = WardService.Ward.FirstOrDefault(r => r.Number == TargetRoom);
+            if (room != null)
+            {
+                var patientToUpdate = room.Patients[TargetBedIndex];
+                if (patientToUpdate != null)
+                {
+                    patientToUpdate.Name = newPatient.Name;
+                    patientToUpdate.Diagnosis = newPatient.Diagnosis;
+                }
+            }
+            // Save updates
+            await WardService.SaveWardData(LocalStorage);
+        }
+        else
+        {
+            // --- NEW ADMISSION LOGIC ---
+            await WardService.AddPatientToBed(TargetRoom, TargetBedIndex, newPatient, LocalStorage);
+        }
+
+        errorMessage = "";
+        CloseModal();
+    }
+
+    // --- STYLING HELPERS ---
+    private string GetRoomBorder(RoomType type) => type switch
+    {
+        RoomType.Single => "border-warning border-2",
+        RoomType.Quad => "border-primary",
+        _ => "border-info"
+    };
+
+    private string GetTypeName(RoomType type) => type switch
+    {
+        RoomType.Single => "Egyágyas",
+        RoomType.Double => "Kétágyas",
+        RoomType.Quad => "Négyágyas",
+        _ => "Ismeretlen"
+    };
+}
