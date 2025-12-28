@@ -5,6 +5,7 @@ using WardSystem;
 using WardSystem.Services;
 
 var builder = WebAssemblyHostBuilder.CreateDefault(args);
+builder.Configuration.AddJsonFile("secrets.json", optional: true, reloadOnChange: true);
 builder.RootComponents.Add<App>("#app");
 builder.RootComponents.Add<HeadOutlet>("head::after");
 
